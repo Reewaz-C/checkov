@@ -1,4 +1,4 @@
-name: ASH IaC Security Scan (HTML)
+name: ASH IaC Scan (HTML)
 
 on:
   workflow_dispatch:
@@ -16,12 +16,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate file exists in repo root
+      - name: Validate file exists
         run: |
           if [ ! -f "./${{ inputs.filename }}" ]; then
-            echo "❌ File not found in repo root: ${{ inputs.filename }}"
+            echo "❌ File not found"
             exit 1
           fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ASH from GitHub
+        run: |
+          pip install git+https://github.com/awslabs/automated-security-helper.git@v3.1.2
 
       - name: Create ASH config
         run: |
@@ -32,7 +41,7 @@ jobs:
             formats:
               - html
             directory: ash-report
-          tools:
+          scanners:
             checkov:
               enabled: true
               options:
@@ -44,15 +53,11 @@ jobs:
               enabled: true
           EOF
 
-      - name: Run ASH (Docker)
+      - name: Run ASH
         run: |
-          docker run --rm \
-            -v "$PWD:/src" \
-            -w /src \
-            public.ecr.aws/aws-labs/automated-security-helper:latest \
-            ash --config ash.yaml
+          ash --mode local --config ash.yaml
 
-      - name: Upload ASH HTML report
+      - name: Upload HTML report
         uses: actions/upload-artifact@v4
         with:
           name: ash-html-report
