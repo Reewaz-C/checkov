@@ -55,7 +55,7 @@ Resources:
           - Sid: DenyInsecureTransport
             Effect: Deny
             Principal: '*'
-            Action: 's3:*'
+            Action: s3:PutObject
             Resource:
               - !Sub 'arn:aws:s3:::${S3BUCKETLOGS}'
               - !Sub 'arn:aws:s3:::${S3BUCKETLOGS}/*'
