@@ -1,42 +1,41 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: CloudFormation template to create a s3 bucket as secure as possible
+Description: >
+  Production-ready secure S3 bucket:
+  - HTTPS-only access
+  - Deny unencrypted uploads
+  - Access logging
+  - Server-side encryption (SSE-S3)
+  - Versioning
+  - Ownership controls
+  - Fully private (Block Public Access enforced)
 
 Parameters:
-  MainBucketName:
+  SecureBucketName:
     Type: String
-    Description: Name of Main S3 bucket
-    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
-    ConstraintDescription: Bucket name should be lowecase
-  
+    Description: Unique S3 bucket name for secure bucket
+    Default: "secure-bucket-karim-2025-12-17"
+
   LogBucketName:
     Type: String
-    Description: Name of Log Bucket
-    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
-    ConstraintDescription: Bucket name should be lowecase
-#   IAMUserArn:
-#     Type: String
-#     Description: ARN of the IAM User allowed to access the bucket
+    Description: Unique S3 bucket name for access logs
+    Default: "secure-bucket-logs-karim-2025-12-17"
 
 Resources:
-#S3 bucket for logging
-  S3BUCKETLOGS:
+
+  # Log bucket for access logging
+  LogBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Ref LogBucketName
-#Public Access Block configuration
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: true
         IgnorePublicAcls: true
+        BlockPublicPolicy: true
         RestrictPublicBuckets: true
- #Bucket Encryption       
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
- #Version Enabling and Ownership enforced             
       VersioningConfiguration:
         Status: Enabled
       OwnershipControls:
@@ -44,118 +43,73 @@ Resources:
           - ObjectOwnership: BucketOwnerEnforced
       Tags:
         - Key: Name
-          Value: riwajs3access_logbucket
-        - Key: Environment
-          Value: Dev
-# Bucket policy for logging bucket "S3BUCKETLOGS"
-  S3BucketLogPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref S3BUCKETLOGS
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-# Deny Insecure Transport SSL
-          - Sid: DenyInsecureTransport
-            Effect: Deny
-            Principal: '*'
-            Action: 's3:*'
-            Resource:
-              - !Sub 'arn:aws:s3:::${S3BUCKETLOGS}'
-              - !Sub 'arn:aws:s3:::${S3BUCKETLOGS}/*'
-            Condition:
-              Bool:
-                aws:SecureTransport: false
-# Enabling Server Access Logging
-          - Sid: AllowS3ServerAccessLogs
-            Effect: Allow
-            Principal:
-              Service: logging.s3.amazonaws.com
-            Action: s3:PutObject
-            Resource: !Sub 'arn:aws:s3:::${S3BUCKETLOGS}/access_logs/*'
-            Condition:
-              StringEquals:
-                s3:x-amz-acl: bucket-owner-full-control
-# Main Bucket
-  S3BUCKET:
+          Value: s3-logs
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # Main secure S3 bucket
+  SecureBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    DependsOn: S3BUCKETLOGS
     Properties:
-      BucketName: !Ref MainBucketName
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-
+      BucketName: !Ref SecureBucketName
+      LoggingConfiguration:
+        DestinationBucketName: !Ref LogBucket
+        LogFilePrefix: access-logs/
+      VersioningConfiguration:
+        Status: Enabled
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
-      
-      VersioningConfiguration:
-        Status: Enabled
-
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
- # Logging configuration for main bucket         
-      LoggingConfiguration:
-        DestinationBucketName: !Ref S3BUCKETLOGS
-        LogFilePrefix: access_logs/
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
       Tags:
         - Key: Name
-          Value: Secureriwajbucket
-        - Key: Environment
-          Value: Dev
-# Https Bucket policy TLS and Encryption enforced
-  HttpsBucketPolicy:
+          Value: s3-secure
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # Bucket policy: HTTPS-only + deny unencrypted uploads
+  SecureBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
-      Bucket: !Ref S3BUCKET
+      Bucket: !Ref SecureBucket
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
+          # Deny all HTTP traffic
           - Sid: DenyInsecureTransport
             Effect: Deny
-            Principal: '*'
-            Action: 's3:*'
+            Principal: "*"
+            Action: "s3:*"
             Resource:
-              - !Sub "arn:aws:s3:::${S3BUCKET}"
-              - !Sub "arn:aws:s3:::${S3BUCKET}/*"
+              - !Sub "${SecureBucket.Arn}"
+              - !Sub "${SecureBucket.Arn}/*"
             Condition:
               Bool:
                 aws:SecureTransport: false
-          
-          - Sid: DenynUnencryptedObjectUploads
+
+          # Deny unencrypted object uploads
+          - Sid: DenyUnencryptedObjectUploads
             Effect: Deny
-            Principal: '*'
-            Action: 's3:PutObject'
-            Resource:
-              - !Sub "arn:aws:s3:::${S3BUCKET}/*"
+            Principal: "*"
+            Action: "s3:PutObject"
+            Resource: !Sub "${SecureBucket.Arn}/*"
             Condition:
               StringNotEquals:
-                s3:x-amz-server-side-encryption: AES256
-            
-          # - Sid: AllowSpecificIAMUserAccess
-          #   Effect: Allow
-          #   Principal:
-          #     AWS: !Ref IAMUserArn
-          #   Action:
-          #     - s3:GetObject
-          #     - s3:PutObject
-          #   Resource: !Sub "arn:aws:s3:::${S3BUCKET}/*"
+                "s3:x-amz-server-side-encryption": "AES256"
+
 Outputs:
-  BucketName:
-    Description: Secure S3 Bucket Name
-    Value: !Ref S3BUCKET
+  SecureBucketName:
+    Description: Name of the secure S3 bucket
+    Value: !Ref SecureBucket
 
-  BucketArn:
-    Description: Secure S3 Bucket ARN
-    Value: !GetAtt S3BUCKET.Arn
-
-  AccessLogsBucket:
-    Description: S3 Access Log Bucket Name
-    Value: !Ref S3BUCKETLOGS
+  LogBucketName:
+    Description: Name of the S3 bucket storing access logs
+    Value: !Ref LogBucket
